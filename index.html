@@ -15,6 +15,7 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         /* ============================================
            RESET & BASE
@@ -2739,6 +2740,75 @@
             background: var(--bg-primary);
         }
 
+        /* PDF.js Canvas Renderer */
+        .pdf-canvas-container {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background: #525659;
+            display: none;
+            scroll-behavior: smooth;
+        }
+
+        .pdf-canvas-container.active {
+            display: block;
+        }
+
+        .pdf-canvas-container canvas {
+            display: block;
+            margin: 12px auto;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+            max-width: 100%;
+        }
+
+        .pdf-loading-spinner {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-secondary);
+            z-index: 2;
+        }
+
+        .pdf-loading-spinner.active {
+            display: block;
+        }
+
+        .pdf-loading-spinner .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(148, 163, 184, 0.15);
+            border-top-color: var(--accent-cyan);
+            border-radius: 50%;
+            animation: pdfSpin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes pdfSpin {
+            to { transform: rotate(360deg); }
+        }
+
+        .pdf-loading-spinner p {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        .pdf-page-info {
+            text-align: center;
+            padding: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.5);
+            background: rgba(0,0,0,0.2);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
         /* PDF Modal Light Mode */
         html.light .pdf-modal-overlay {
             background: rgba(255, 251, 245, 0.88);
@@ -3715,7 +3785,12 @@
                 </div>
             </div>
             <div class="pdf-modal-body">
-                <iframe id="pdfModalIframe" src="" allowfullscreen></iframe>
+                <iframe id="pdfModalIframe" src="" allowfullscreen style="display:none;"></iframe>
+                <div class="pdf-canvas-container" id="pdfCanvasContainer"></div>
+                <div class="pdf-loading-spinner" id="pdfLoadingSpinner">
+                    <div class="spinner"></div>
+                    <p>Đang tải PDF...</p>
+                </div>
                 <div class="pdf-mobile-fallback" id="pdfMobileFallback">
                     <div class="pdf-mobile-fallback-content">
                         <i class="fas fa-file-pdf"></i>
@@ -4054,7 +4129,7 @@
             });
 
             /* =====================
-               PDF MODAL VIEWER
+               PDF MODAL VIEWER (PDF.js Canvas Renderer)
                ===================== */
             var pdfOverlay = document.getElementById('pdfModalOverlay');
             var pdfIframe = document.getElementById('pdfModalIframe');
@@ -4062,6 +4137,13 @@
             var pdfDownloadBtn = document.getElementById('pdfModalDownload');
             var pdfMobileFallback = document.getElementById('pdfMobileFallback');
             var pdfMobileFallbackLink = document.getElementById('pdfMobileFallbackLink');
+            var pdfCanvasContainer = document.getElementById('pdfCanvasContainer');
+            var pdfLoadingSpinner = document.getElementById('pdfLoadingSpinner');
+
+            // Setup PDF.js worker
+            if (typeof pdfjsLib !== 'undefined') {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            }
 
             // Detect mobile/tablet devices
             function isMobileDevice() {
@@ -4077,22 +4159,97 @@
                 return a.href;
             }
 
+            // Render PDF pages to canvas elements using PDF.js
+            var currentPdfTask = null;
+            function renderPdfToCanvas(url) {
+                // Clear previous content
+                pdfCanvasContainer.innerHTML = '';
+                pdfLoadingSpinner.classList.add('active');
+                pdfCanvasContainer.classList.add('active');
+                pdfIframe.style.display = 'none';
+
+                // Cancel any previous loading task
+                if (currentPdfTask) {
+                    currentPdfTask.destroy();
+                    currentPdfTask = null;
+                }
+
+                var loadingTask = pdfjsLib.getDocument(url);
+                currentPdfTask = loadingTask;
+
+                loadingTask.promise.then(function(pdf) {
+                    currentPdfTask = null;
+                    pdfLoadingSpinner.classList.remove('active');
+
+                    // Add page info
+                    var pageInfo = document.createElement('div');
+                    pageInfo.className = 'pdf-page-info';
+                    pageInfo.textContent = 'Tổng: ' + pdf.numPages + ' trang';
+                    pdfCanvasContainer.appendChild(pageInfo);
+
+                    // Render each page
+                    var renderChain = Promise.resolve();
+                    for (var i = 1; i <= pdf.numPages; i++) {
+                        (function(pageNum) {
+                            renderChain = renderChain.then(function() {
+                                return pdf.getPage(pageNum).then(function(page) {
+                                    // Calculate scale to fit container width
+                                    var containerWidth = pdfCanvasContainer.clientWidth - 24; // 12px margin each side
+                                    var unscaledViewport = page.getViewport({ scale: 1 });
+                                    var scale = Math.min(containerWidth / unscaledViewport.width, 2.0);
+                                    // Ensure minimum readable scale
+                                    if (scale < 1.0) scale = 1.0;
+
+                                    var viewport = page.getViewport({ scale: scale });
+                                    var canvas = document.createElement('canvas');
+                                    var context = canvas.getContext('2d');
+
+                                    // Support high-DPI displays
+                                    var dpr = window.devicePixelRatio || 1;
+                                    canvas.width = Math.floor(viewport.width * dpr);
+                                    canvas.height = Math.floor(viewport.height * dpr);
+                                    canvas.style.width = Math.floor(viewport.width) + 'px';
+                                    canvas.style.height = Math.floor(viewport.height) + 'px';
+                                    context.scale(dpr, dpr);
+
+                                    pdfCanvasContainer.appendChild(canvas);
+
+                                    return page.render({
+                                        canvasContext: context,
+                                        viewport: viewport
+                                    }).promise;
+                                });
+                            });
+                        })(i);
+                    }
+
+                    return renderChain;
+                }).catch(function(error) {
+                    currentPdfTask = null;
+                    pdfLoadingSpinner.classList.remove('active');
+                    console.error('PDF.js render error:', error);
+                    // Fallback: try browser built-in viewer via iframe
+                    pdfCanvasContainer.classList.remove('active');
+                    pdfIframe.style.display = 'block';
+                    pdfIframe.src = url;
+                });
+            }
+
             function openPdfModal(url) {
                 var absoluteUrl = resolveUrl(url);
                 // Set download button href to the absolute PDF URL
                 pdfDownloadBtn.href = absoluteUrl;
 
                 if (isMobileDevice()) {
-                    // On mobile: hide iframe, show fallback with direct link
+                    // On mobile: navigate directly to PDF
                     pdfIframe.style.display = 'none';
+                    pdfCanvasContainer.classList.remove('active');
                     pdfMobileFallback.classList.add('active');
                     pdfMobileFallbackLink.href = absoluteUrl;
-                    pdfIframe.src = '';
                 } else {
-                    // On desktop: use browser's built-in PDF viewer (no CORS issues, correct font rendering)
-                    pdfIframe.style.display = 'block';
+                    // On desktop: render PDF using PDF.js canvas (works on ALL browsers)
                     pdfMobileFallback.classList.remove('active');
-                    pdfIframe.src = absoluteUrl;
+                    renderPdfToCanvas(absoluteUrl);
                 }
 
                 pdfOverlay.classList.add('active');
@@ -4102,9 +4259,17 @@
             function closePdfModal() {
                 pdfOverlay.classList.remove('active');
                 document.body.style.overflow = '';
+                // Cancel any ongoing PDF.js rendering
+                if (currentPdfTask) {
+                    currentPdfTask.destroy();
+                    currentPdfTask = null;
+                }
                 setTimeout(function () {
                     pdfIframe.src = '';
-                    pdfIframe.style.display = 'block';
+                    pdfIframe.style.display = 'none';
+                    pdfCanvasContainer.innerHTML = '';
+                    pdfCanvasContainer.classList.remove('active');
+                    pdfLoadingSpinner.classList.remove('active');
                     pdfMobileFallback.classList.remove('active');
                 }, 300);
             }
