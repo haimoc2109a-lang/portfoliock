@@ -4089,11 +4089,10 @@
                     pdfMobileFallbackLink.href = absoluteUrl;
                     pdfIframe.src = '';
                 } else {
-                    // On desktop: use Mozilla PDF.js viewer (CDN) for 100% reliable rendering
+                    // On desktop: use browser's built-in PDF viewer (no CORS issues, correct font rendering)
                     pdfIframe.style.display = 'block';
                     pdfMobileFallback.classList.remove('active');
-                    // PDF.js viewer renders PDFs via JavaScript canvas — works on all browsers
-                    pdfIframe.src = 'https://mozilla.github.io/pdf.js/web/viewer.html?file=' + encodeURIComponent(absoluteUrl);
+                    pdfIframe.src = absoluteUrl;
                 }
 
                 pdfOverlay.classList.add('active');
