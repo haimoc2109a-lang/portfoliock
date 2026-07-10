@@ -3841,6 +3841,10 @@
             <div class="pdf-modal-header">
                 <span class="pdf-modal-title"><i class="fas fa-file-pdf"></i> PDF Viewer</span>
                 <div class="pdf-modal-actions">
+                    <a href="https://drive.google.com/file/d/131YHgL6iLbtIPrph71bHszZhmznW-f_-/view?usp=sharing" id="pdfModalVideoBtn" class="pdf-modal-download-btn" target="_blank"
+                        rel="noopener noreferrer" aria-label="Xem video bài tập nhóm" style="display: none; background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff; border: none;">
+                        <i class="fas fa-play-circle"></i> <span>Xem Video Nhóm</span>
+                    </a>
                     <a href="#" id="pdfModalDownload" class="pdf-modal-download-btn" target="_blank"
                         rel="noopener noreferrer" aria-label="Open PDF in new tab">
                         <i class="fas fa-external-link-alt"></i> <span>Mở PDF</span>
@@ -4303,6 +4307,14 @@
                 var absoluteUrl = resolveUrl(url);
                 // Set download button href to the absolute PDF URL
                 pdfDownloadBtn.href = absoluteUrl;
+
+                // Show/hide video button for Tuan4
+                var videoBtn = document.getElementById('pdfModalVideoBtn');
+                if (url.indexOf('Tuan4') !== -1) {
+                    videoBtn.style.display = 'inline-flex';
+                } else {
+                    videoBtn.style.display = 'none';
+                }
 
                 if (isMobileDevice()) {
                     // On mobile: navigate directly to PDF
